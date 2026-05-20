@@ -1,0 +1,6 @@
+.env
+__pycache__/
+logs/
+jira_token.json
+.venv
+.venv_jc

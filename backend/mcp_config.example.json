@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "jiracopilot": {
+      "command": "python3",
+      "args": ["/home/krish/Desktop/HSBC_POC/jira_copilot/backend/mcp_server.py"],
+      "env": {
+        "JIRA_REDIRECT_URI": "http://localhost:8000/auth/jira/callback"
+      }
+    }
+  }
+}

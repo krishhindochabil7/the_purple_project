@@ -1,0 +1,56 @@
+{
+  "name": "jira-copilot",
+  "displayName": "JiraCopilot",
+  "description": "Mocked agentic Jira coding assistant with audit trails and human checkpoints.",
+  "version": "0.0.1",
+  "publisher": "demo",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:jiraCopilot.sidebar"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "jiraCopilot",
+          "title": "JiraCopilot",
+          "icon": "media/jira-copilot.svg"
+        }
+      ]
+    },
+    "views": {
+      "jiraCopilot": [
+        {
+          "type": "webview",
+          "id": "jiraCopilot.sidebar",
+          "name": "JiraCopilot"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "npm run build && vsce package"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.47",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.2.67",
+    "@types/react-dom": "^18.2.22",
+    "@types/vscode": "^1.88.0",
+    "@vscode/vsce": "^3.9.1",
+    "esbuild": "^0.20.2",
+    "typescript": "^5.4.3"
+  }
+}
