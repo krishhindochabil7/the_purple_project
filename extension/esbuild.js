@@ -16,7 +16,7 @@ const builds = [
     outfile: "dist/extension.js",
     platform: "node",
     format: "cjs",
-    external: ["vscode"]
+    external: ["vscode", "@anthropic-ai/claude-agent-sdk"]
   },
   {
     ...common,

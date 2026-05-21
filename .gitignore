@@ -4,3 +4,4 @@ logs/
 jira_token.json
 .venv
 .venv_jc
+node_modules/

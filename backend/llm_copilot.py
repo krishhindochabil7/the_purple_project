@@ -100,6 +100,8 @@ class CopilotLLM:
         prompt = f"""You are JiraCopilot. Analyze this Jira ticket and repository context.
 Return only valid JSON with keys: decision, rationale, alternatives_considered (array), confidence (0-1).
 
+IMPORTANT: Exclude virtual environment directories (e.g., .venv, .venv_*, venv, __pycache__), their contents, and .env configuration files from your analysis entirely. Focus only on the application source code.
+
 Ticket:
 {json.dumps(ticket, indent=2)}
 
@@ -170,6 +172,7 @@ Rules:
 - For every changed file, return the COMPLETE new file content.
 - Preserve unrelated code and formatting.
 - If validation_errors are provided, repair the previous attempt.
+- Do NOT modify, create, or reference virtual environment files (e.g., .venv*, venv/, __pycache__/) or .env configuration files. Only modify application source code.
 
 JSON schema:
 {{

@@ -270,13 +270,77 @@ async function copilotChatOnce(messages, sessionToken, opts = {}) {
   return json.choices?.[0]?.message?.content ?? "";
 }
 
+// src/llm/claudeClient.ts
+var CodeInsights = class {
+  constructor(repoPath) {
+    this.repoPath = repoPath;
+  }
+  async ask(prompt, system) {
+    try {
+      console.log("PATH:", process.env.PATH);
+      console.log("BEFORE IMPORT");
+      const sdk = await import("@anthropic-ai/claude-agent-sdk");
+      console.log("AFTER IMPORT");
+      const { query } = sdk;
+      console.log("AFTER QUERY EXTRACT");
+      console.log("repoPath:", this.repoPath);
+      if (!this.repoPath) {
+        throw new Error("repoPath is undefined");
+      }
+      console.log("QUERY FUNCTION:", query);
+      console.log("QUERY TYPE:", typeof query);
+      console.log("SYSTEM:", system);
+      console.log("PROMPT PREVIEW:", prompt.slice(0, 200));
+      const stream = query({
+        prompt,
+        options: {
+          cwd: this.repoPath,
+          systemPrompt: system,
+          permissionMode: "acceptEdits",
+          allowedTools: ["Read", "Grep", "Glob", "Bash"]
+        }
+      });
+      console.log("STREAM CREATED:", stream);
+      const chunks = [];
+      for await (const msg of stream) {
+        if ("content" in msg) {
+          for (const b of msg.content) {
+            if (b.type === "text")
+              chunks.push(b.text);
+          }
+        }
+      }
+      return chunks.join("\n");
+    } catch (e) {
+      console.error("CLAUDE FAILURE");
+      console.error(e);
+      if (e instanceof Error) {
+        console.error("MESSAGE:", e.message);
+        console.error("STACK:", e.stack);
+      }
+      throw e;
+    }
+  }
+  qa(q) {
+    return this.ask(q, "Code intelligence assistant. Cite files/lines. Ignore virtual environment directories (.venv*, venv/, __pycache__/) and .env files.");
+  }
+  review(input) {
+    return this.ask(`Review:
+
+${input}`, "Senior reviewer. Be concrete. Ignore virtual environment directories (.venv*, venv/, __pycache__/) and .env files.");
+  }
+  metrics(target = ".") {
+    return this.ask(`Analyze ${target}: complexity, dead code, deps. Do not analyze virtual environment directories (.venv*, venv/, __pycache__/) or .env files.`);
+  }
+};
+
 // src/copilotBridge.ts
 var HOST = "127.0.0.1";
 var PORT = 8001;
 var MAX_BODY_BYTES = 1024 * 1024;
 var MAX_FILE_BYTES = 96 * 1024;
 var REQUEST_TIMEOUT_MS = 12e4;
-var IGNORED_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", "target"]);
+var IGNORED_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", "target", ".venv", ".venv_jc", ".venv_hp", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".env"]);
 var SUPPORTED_EXTENSIONS = /* @__PURE__ */ new Set([
   ".ts",
   ".tsx",
@@ -391,6 +455,8 @@ async function collectWorkspaceFiles(root, maxFiles, query) {
       if (files.length >= maxFiles)
         return;
       if (entry.name.startsWith(".") && entry.name !== ".github" && entry.name !== ".vscode") {
+        if (entry.isDirectory())
+          continue;
         if (IGNORED_DIRS.has(entry.name))
           continue;
       }
@@ -453,6 +519,42 @@ async function handleComplete(context, req, res) {
   log("POST /copilot/complete completed", { durationMs: Date.now() - started });
   sendJson(res, 200, { content });
 }
+async function handleClaudeComplete(req, res) {
+  const started = Date.now();
+  const body = await readJsonBody(req);
+  if (!body.workspacePath) {
+    sendJson(res, 400, { error: "workspacePath is required" });
+    return;
+  }
+  if (!body.prompt) {
+    sendJson(res, 400, { error: "prompt is required" });
+    return;
+  }
+  const root = validateWorkspacePath(body.workspacePath);
+  const insights = new CodeInsights(root);
+  let content;
+  const mode = body.mode ?? "qa";
+  try {
+    switch (mode) {
+      case "review":
+        content = await insights.review(body.prompt);
+        break;
+      case "metrics":
+        content = await insights.metrics(body.prompt);
+        break;
+      case "qa":
+      default:
+        content = await insights.qa(body.prompt);
+        break;
+    }
+    log("POST /claude/complete completed", { durationMs: Date.now() - started, mode });
+    sendJson(res, 200, { content });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log("POST /claude/complete failed", { durationMs: Date.now() - started, error: message });
+    sendJson(res, 500, { error: message });
+  }
+}
 async function handleWorkspaceFiles(req, res) {
   const started = Date.now();
   const body = await readJsonBody(req);
@@ -495,6 +597,10 @@ function startCopilotBridge(context) {
       }
       if (req.method === "POST" && requestUrl.pathname === "/copilot/complete") {
         await handleComplete(context, req, res);
+        return;
+      }
+      if (req.method === "POST" && requestUrl.pathname === "/claude/complete") {
+        await handleClaudeComplete(req, res);
         return;
       }
       if (req.method === "POST" && requestUrl.pathname === "/workspace/files") {

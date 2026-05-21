@@ -39,9 +39,13 @@ class HumanDecision(BaseModel):
     decided_at: datetime
 
 
+LLMProvider = Literal["copilot", "claude"]
+
+
 class TicketSessionState(TypedDict, total=False):
     ticket_id: str
     workspace_path: str
+    llm_provider: LLMProvider
     ticket: dict
     session_id: str
     context_snapshot: dict

@@ -34,6 +34,7 @@ sessions: dict[str, dict] = {}
 class StartSessionRequest(BaseModel):
     ticket_id: str
     workspace_path: str = ""
+    llm_provider: str = "copilot"
 
 
 class DecisionRequest(BaseModel):
@@ -96,10 +97,12 @@ def start_session(body: StartSessionRequest):
     session_id = str(uuid4())
     thread_id = f"{body.ticket_id}:{session_id}"
     started_at = datetime.now(timezone.utc).isoformat()
+    llm_provider = body.llm_provider if body.llm_provider in ("copilot", "claude") else "copilot"
     initial_state = {
         "ticket_id": body.ticket_id,
         "session_id": session_id,
         "workspace_path": body.workspace_path,
+        "llm_provider": llm_provider,
         "reasoning_steps": [],
         "current_plan": None,
         "human_decisions": [],

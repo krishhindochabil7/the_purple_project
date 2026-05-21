@@ -8,13 +8,14 @@ import {
   resolveSessionToken,
   type ChatMessage
 } from "./llm/copilotClient";
+import { CodeInsights } from "./llm/claudeClient";
 
 const HOST = "127.0.0.1";
 const PORT = 8001;
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 96 * 1024;
 const REQUEST_TIMEOUT_MS = 120000;
-const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", "target"]);
+const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", "target", ".venv", ".venv_jc", ".venv_hp", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".env"]);
 const SUPPORTED_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rs", ".json", ".yaml", ".yml", ".md"
 ]);
@@ -132,7 +133,8 @@ async function collectWorkspaceFiles(root: string, maxFiles: number, query: stri
     for (const entry of entries) {
       if (files.length >= maxFiles) return;
       if (entry.name.startsWith(".") && entry.name !== ".github" && entry.name !== ".vscode") {
-        if (IGNORED_DIRS.has(entry.name)) continue;
+        if (entry.isDirectory()) continue;       // skip ALL hidden directories
+        if (IGNORED_DIRS.has(entry.name)) continue; // skip specific hidden files
       }
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -198,6 +200,50 @@ async function handleComplete(context: vscode.ExtensionContext, req: http.Incomi
   sendJson(res, 200, { content });
 }
 
+async function handleClaudeComplete(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const started = Date.now();
+  const body = await readJsonBody<{
+    prompt: string;
+    workspacePath: string;
+    mode?: "qa" | "review" | "metrics";
+  }>(req);
+
+  if (!body.workspacePath) {
+    sendJson(res, 400, { error: "workspacePath is required" });
+    return;
+  }
+  if (!body.prompt) {
+    sendJson(res, 400, { error: "prompt is required" });
+    return;
+  }
+
+  const root = validateWorkspacePath(body.workspacePath);
+  const insights = new CodeInsights(root);
+
+  let content: string;
+  const mode = body.mode ?? "qa";
+  try {
+    switch (mode) {
+      case "review":
+        content = await insights.review(body.prompt);
+        break;
+      case "metrics":
+        content = await insights.metrics(body.prompt);
+        break;
+      case "qa":
+      default:
+        content = await insights.qa(body.prompt);
+        break;
+    }
+    log("POST /claude/complete completed", { durationMs: Date.now() - started, mode });
+    sendJson(res, 200, { content });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log("POST /claude/complete failed", { durationMs: Date.now() - started, error: message });
+    sendJson(res, 500, { error: message });
+  }
+}
+
 async function handleWorkspaceFiles(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const started = Date.now();
   const body = await readJsonBody<{ workspacePath?: string; maxFiles?: number; query?: string }>(req);
@@ -244,6 +290,10 @@ export function startCopilotBridge(context: vscode.ExtensionContext): vscode.Dis
       }
       if (req.method === "POST" && requestUrl.pathname === "/copilot/complete") {
         await handleComplete(context, req, res);
+        return;
+      }
+      if (req.method === "POST" && requestUrl.pathname === "/claude/complete") {
+        await handleClaudeComplete(req, res);
         return;
       }
       if (req.method === "POST" && requestUrl.pathname === "/workspace/files") {

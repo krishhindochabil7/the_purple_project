@@ -14,6 +14,13 @@ declare global {
 }
 const tags = ["WRONG_APPROACH", "TOO_RISKY", "MISREAD_REQUIREMENT", "INCOMPLETE", "OTHER"];
 
+type LLMProvider = "copilot" | "claude";
+
+const LLM_PROVIDERS: { value: LLMProvider; label: string; desc: string }[] = [
+  { value: "copilot", label: "GitHub Copilot", desc: "Uses GitHub Copilot via your VS Code session." },
+  { value: "claude", label: "Claude (Agent SDK)", desc: "Uses Claude Agent SDK to analyze code." },
+];
+
 type Ticket = {
   id: string;
   title: string;
@@ -70,6 +77,8 @@ function App() {
   const [audit, setAudit] = useState<any>(null);
   const [jiraLoading, setJiraLoading] = useState(false);
   const [jiraConnected, setJiraConnected] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("copilot");
 
   // useEffect(() => {
   //   fetch(`${API}/api/tickets`)
@@ -119,13 +128,14 @@ function App() {
     fetch(`${API}/api/session/${sessionId}/audit`).then((r) => r.json()).then(setAudit).catch(console.error);
   }, [view, sessionId]);
 
-  async function start(ticketId: string) {
+  async function start(ticketId: string, provider: LLMProvider) {
     const res = await fetch(`${API}/api/session/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticket_id: ticketId, workspace_path: window.__JIRA_COPILOT_WORKSPACE_PATH__ || "" })
+      body: JSON.stringify({ ticket_id: ticketId, workspace_path: window.__JIRA_COPILOT_WORKSPACE_PATH__ || "", llm_provider: provider })
     });
     const data = await res.json();
+    setSelectedTicket(null);
     setSessionId(data.session_id);
     setView("session");
   }
@@ -225,6 +235,18 @@ function App() {
     setState(await res.json());
   }
 
+  if (selectedTicket) {
+    return (
+      <ProviderSelector
+        ticket={selectedTicket}
+        selectedProvider={selectedProvider}
+        onSelectProvider={setSelectedProvider}
+        onStart={() => start(selectedTicket.id, selectedProvider)}
+        onBack={() => setSelectedTicket(null)}
+      />
+    );
+  }
+
   if (view === "audit" && audit) {
     return <AuditReplay audit={audit} onBack={() => { setView("dashboard"); setAudit(null); }} />;
   }
@@ -232,7 +254,10 @@ function App() {
     if (!state) return <main className="app"><p>Loading session...</p></main>;
     return <SessionView state={state} onDecision={decide} onAudit={() => setView("audit")} />;
   }
-  return <Dashboard tickets={tickets} onStart={start} onConnectJira={connectJira} jiraLoading={jiraLoading} jiraConnected={jiraConnected} />;
+  return <Dashboard tickets={tickets} onStart={(id) => {
+    const ticket = tickets.find(t => t.id === id);
+    if (ticket) setSelectedTicket(ticket);
+  }} onConnectJira={connectJira} jiraLoading={jiraLoading} jiraConnected={jiraConnected} />;
 }
 
 function Dashboard({ tickets, onStart, onConnectJira, jiraLoading, jiraConnected }: { tickets: Ticket[]; onStart: (id: string) => void; onConnectJira: () => void; jiraLoading: boolean; jiraConnected: boolean }) {
@@ -249,8 +274,55 @@ function Dashboard({ tickets, onStart, onConnectJira, jiraLoading, jiraConnected
         <div className="row gap"><span className="idBadge">{ticket.id}</span><Chip text={ticket.priority} kind="priority" /><Chip text={ticket.status} /></div>
         <h2>{ticket.title}</h2>
         <p className="clamp">{ticket.description}</p>
-        <button onClick={() => onStart(ticket.id)}>Start Copilot</button>
+        <button onClick={() => onStart(ticket.id)}>Start</button>
       </article>)}
+    </section>
+  </main>;
+}
+
+function ProviderSelector({ ticket, selectedProvider, onSelectProvider, onStart, onBack }: {
+  ticket: Ticket;
+  selectedProvider: LLMProvider;
+  onSelectProvider: (p: LLMProvider) => void;
+  onStart: () => void;
+  onBack: () => void;
+}) {
+  return <main className="app">
+    <header className="topbar">
+      <div>
+        <h1>JiraCopilot</h1>
+      </div>
+      <button className="ghost" onClick={onBack}>Back to tickets</button>
+    </header>
+    <article className="ticketDetail">
+      <div className="row gap"><span className="idBadge">{ticket.id}</span><Chip text={ticket.priority} kind="priority" /><Chip text={ticket.status} /></div>
+      <h2>{ticket.title}</h2>
+      <p>{ticket.description}</p>
+      <div className="labels">{ticket.labels.map((label) => <span key={label}>{label}</span>)}</div>
+    </article>
+    <section className="providerSelection">
+      <h2>Choose LLM Provider</h2>
+      <p className="subtitle">Select which AI to use for this task</p>
+      <div className="providerCards">
+        {LLM_PROVIDERS.map((p) => (
+          <button
+            key={p.value}
+            className={`providerCard ${selectedProvider === p.value ? "selected" : ""}`}
+            onClick={() => onSelectProvider(p.value)}
+          >
+            <div className="providerRadio">
+              <div className={`radio ${selectedProvider === p.value ? "checked" : ""}`} />
+            </div>
+            <div className="providerInfo">
+              <strong>{p.label}</strong>
+              <span className="providerDesc">{p.desc}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+      <button className="startBtn" onClick={onStart}>
+        Start with {LLM_PROVIDERS.find(p => p.value === selectedProvider)?.label}
+      </button>
     </section>
   </main>;
 }
@@ -471,6 +543,25 @@ h1, h2, h3, p { margin-top: 0; }
 pre { white-space: pre-wrap; overflow: auto; max-height: 200px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); padding: 8px; border-radius: 4px; }
 .diff .add { color: #2ea043; }
 .diff .del { color: #f85149; }
+.ghost { background: transparent; color: var(--vscode-textLink-foreground); padding: 0; }
+.ghost:hover { text-decoration: underline; }
+.ticketDetail { border: 1px solid var(--vscode-badge-background); border-radius: 6px; padding: 14px; margin-bottom: 14px; }
+.ticketDetail h2 { margin: 8px 0; }
+.providerSelection { display: grid; gap: 10px; }
+.providerSelection .subtitle { color: var(--vscode-disabledForeground); font-size: 13px; margin-bottom: 8px; }
+.providerCards { display: grid; gap: 8px; }
+.providerCard { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 14px; text-align: left; background: var(--vscode-editor-background); border: 2px solid var(--vscode-badge-background); border-radius: 8px; cursor: pointer; transition: border-color .15s, background .15s; }
+.providerCard:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-textLink-foreground); }
+.providerCard.selected { border-color: var(--vscode-testing-iconPassed); background: color-mix(in srgb, var(--vscode-testing-iconPassed) 8%, var(--vscode-editor-background)); }
+.providerRadio { padding-top: 2px; }
+.radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--vscode-badge-background); display: flex; align-items: center; justify-content: center; transition: border-color .15s, background .15s; }
+.radio.checked { border-color: var(--vscode-testing-iconPassed); background: var(--vscode-testing-iconPassed); }
+.radio.checked::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-editor-background); }
+.providerInfo { display: grid; gap: 3px; }
+.providerInfo strong { font-size: 14px; }
+.providerDesc { font-size: 12px; color: var(--vscode-disabledForeground); line-height: 1.4; }
+.startBtn { margin-top: 6px; padding: 12px 16px; font-size: 14px; font-weight: 600; background: var(--vscode-testing-iconPassed); color: var(--vscode-button-foreground); border: 0; border-radius: 8px; cursor: pointer; transition: opacity .15s; }
+.startBtn:hover { opacity: .85; }
 .success { padding: 12px; border-radius: 6px; display: grid; gap: 10px; }
 .mini { margin-bottom: 8px; cursor: pointer; }
 .oneLine { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

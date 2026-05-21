@@ -24465,6 +24465,10 @@
   var API = "http://localhost:8000";
   var vscode = acquireVsCodeApi();
   var tags = ["WRONG_APPROACH", "TOO_RISKY", "MISREAD_REQUIREMENT", "INCOMPLETE", "OTHER"];
+  var LLM_PROVIDERS = [
+    { value: "copilot", label: "GitHub Copilot", desc: "Uses GitHub Copilot via your VS Code session." },
+    { value: "claude", label: "Claude (Agent SDK)", desc: "Uses Claude Agent SDK to analyze code." }
+  ];
   function App() {
     const [view, setView] = (0, import_react.useState)("dashboard");
     const [tickets, setTickets] = (0, import_react.useState)([]);
@@ -24473,6 +24477,8 @@
     const [audit, setAudit] = (0, import_react.useState)(null);
     const [jiraLoading, setJiraLoading] = (0, import_react.useState)(false);
     const [jiraConnected, setJiraConnected] = (0, import_react.useState)(false);
+    const [selectedTicket, setSelectedTicket] = (0, import_react.useState)(null);
+    const [selectedProvider, setSelectedProvider] = (0, import_react.useState)("copilot");
     (0, import_react.useEffect)(() => {
       async function initialize() {
         const connected = await refreshJiraStatus();
@@ -24502,13 +24508,14 @@
         return;
       fetch(`${API}/api/session/${sessionId}/audit`).then((r) => r.json()).then(setAudit).catch(console.error);
     }, [view, sessionId]);
-    async function start(ticketId) {
+    async function start(ticketId, provider) {
       const res = await fetch(`${API}/api/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket_id: ticketId, workspace_path: window.__JIRA_COPILOT_WORKSPACE_PATH__ || "" })
+        body: JSON.stringify({ ticket_id: ticketId, workspace_path: window.__JIRA_COPILOT_WORKSPACE_PATH__ || "", llm_provider: provider })
       });
       const data = await res.json();
+      setSelectedTicket(null);
       setSessionId(data.session_id);
       setView("session");
     }
@@ -24575,6 +24582,18 @@
       });
       setState(await res.json());
     }
+    if (selectedTicket) {
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        ProviderSelector,
+        {
+          ticket: selectedTicket,
+          selectedProvider,
+          onSelectProvider: setSelectedProvider,
+          onStart: () => start(selectedTicket.id, selectedProvider),
+          onBack: () => setSelectedTicket(null)
+        }
+      );
+    }
     if (view === "audit" && audit) {
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuditReplay, { audit, onBack: () => {
         setView("dashboard");
@@ -24586,7 +24605,11 @@
         return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", { className: "app", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Loading session..." }) });
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionView, { state, onDecision: decide, onAudit: () => setView("audit") });
     }
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Dashboard, { tickets, onStart: start, onConnectJira: connectJira, jiraLoading, jiraConnected });
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Dashboard, { tickets, onStart: (id) => {
+      const ticket = tickets.find((t) => t.id === id);
+      if (ticket)
+        setSelectedTicket(ticket);
+    }, onConnectJira: connectJira, jiraLoading, jiraConnected });
   }
   function Dashboard({ tickets, onStart, onConnectJira, jiraLoading, jiraConnected }) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "app", children: [
@@ -24605,8 +24628,49 @@
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: ticket.title }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "clamp", children: ticket.description }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => onStart(ticket.id), children: "Start Copilot" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => onStart(ticket.id), children: "Start" })
       ] }, ticket.id)) })
+    ] });
+  }
+  function ProviderSelector({ ticket, selectedProvider, onSelectProvider, onStart, onBack }) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "app", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "topbar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "JiraCopilot" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "ghost", onClick: onBack, children: "Back to tickets" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("article", { className: "ticketDetail", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "row gap", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "idBadge", children: ticket.id }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Chip, { text: ticket.priority, kind: "priority" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Chip, { text: ticket.status })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: ticket.title }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: ticket.description }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "labels", children: ticket.labels.map((label) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: label }, label)) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "providerSelection", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Choose LLM Provider" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "subtitle", children: "Select which AI to use for this task" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "providerCards", children: LLM_PROVIDERS.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: `providerCard ${selectedProvider === p.value ? "selected" : ""}`,
+            onClick: () => onSelectProvider(p.value),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "providerRadio", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: `radio ${selectedProvider === p.value ? "checked" : ""}` }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "providerInfo", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: p.label }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "providerDesc", children: p.desc })
+              ] })
+            ]
+          },
+          p.value
+        )) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "startBtn", onClick: onStart, children: [
+          "Start with ",
+          LLM_PROVIDERS.find((p) => p.value === selectedProvider)?.label
+        ] })
+      ] })
     ] });
   }
   function SessionView({ state, onDecision, onAudit }) {
@@ -24892,6 +24956,25 @@ h1, h2, h3, p { margin-top: 0; }
 pre { white-space: pre-wrap; overflow: auto; max-height: 200px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); padding: 8px; border-radius: 4px; }
 .diff .add { color: #2ea043; }
 .diff .del { color: #f85149; }
+.ghost { background: transparent; color: var(--vscode-textLink-foreground); padding: 0; }
+.ghost:hover { text-decoration: underline; }
+.ticketDetail { border: 1px solid var(--vscode-badge-background); border-radius: 6px; padding: 14px; margin-bottom: 14px; }
+.ticketDetail h2 { margin: 8px 0; }
+.providerSelection { display: grid; gap: 10px; }
+.providerSelection .subtitle { color: var(--vscode-disabledForeground); font-size: 13px; margin-bottom: 8px; }
+.providerCards { display: grid; gap: 8px; }
+.providerCard { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 14px; text-align: left; background: var(--vscode-editor-background); border: 2px solid var(--vscode-badge-background); border-radius: 8px; cursor: pointer; transition: border-color .15s, background .15s; }
+.providerCard:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-textLink-foreground); }
+.providerCard.selected { border-color: var(--vscode-testing-iconPassed); background: color-mix(in srgb, var(--vscode-testing-iconPassed) 8%, var(--vscode-editor-background)); }
+.providerRadio { padding-top: 2px; }
+.radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--vscode-badge-background); display: flex; align-items: center; justify-content: center; transition: border-color .15s, background .15s; }
+.radio.checked { border-color: var(--vscode-testing-iconPassed); background: var(--vscode-testing-iconPassed); }
+.radio.checked::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-editor-background); }
+.providerInfo { display: grid; gap: 3px; }
+.providerInfo strong { font-size: 14px; }
+.providerDesc { font-size: 12px; color: var(--vscode-disabledForeground); line-height: 1.4; }
+.startBtn { margin-top: 6px; padding: 12px 16px; font-size: 14px; font-weight: 600; background: var(--vscode-testing-iconPassed); color: var(--vscode-button-foreground); border: 0; border-radius: 8px; cursor: pointer; transition: opacity .15s; }
+.startBtn:hover { opacity: .85; }
 .success { padding: 12px; border-radius: 6px; display: grid; gap: 10px; }
 .mini { margin-bottom: 8px; cursor: pointer; }
 .oneLine { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

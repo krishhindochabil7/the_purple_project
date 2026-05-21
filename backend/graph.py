@@ -16,15 +16,23 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from execution_engine import apply_updates
 from git_ops import commit_changes, git_status
 from jira_auth import fetch_issue, load_jira_tickets, normalize_issue
+from claude_llm import ClaudeLLM
 from llm_copilot import CopilotLLM
-from state import ReasoningStep, TicketSessionState
+from state import LLMProvider, ReasoningStep, TicketSessionState
 from workspace_bridge import load_workspace_files
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 logger = logging.getLogger("jira_copilot.graph")
-llm = CopilotLLM()
 ticket_store: dict[str, str] = {}
+
+
+def _create_llm(provider: LLMProvider | None, workspace_path: str = "") -> CopilotLLM | ClaudeLLM:
+    if provider == "claude":
+        logger.info("llm_provider_selected", extra={"provider": "claude"})
+        return ClaudeLLM(workspace_path=workspace_path)
+    logger.info("llm_provider_selected", extra={"provider": "copilot"})
+    return CopilotLLM()
 MAX_EXECUTION_REPAIRS = 2
 
 
@@ -164,8 +172,9 @@ def reason(state: TicketSessionState) -> dict:
     files = {} if rejection_context else context_files_from_state(state)
     prompt = prompt_for("reasoning", ticket, files, rejection_context)
     previous = latest_step(state, "reason") if rejection_context else None
-    output = llm.generate_reasoning(ticket, files)
-    summary = llm.extract_reasoning_summary(prompt, output)
+    active_llm = _create_llm(state.get("llm_provider"), state.get("workspace_path", ""))
+    output = active_llm.generate_reasoning(ticket, files)
+    summary = active_llm.extract_reasoning_summary(prompt, output)
     raw = {**output, "reasoning_summary": summary}
     step = build_step(
         state,
@@ -204,7 +213,8 @@ def plan(state: TicketSessionState) -> dict:
     reasoning = latest_step(state, "reason")
     prompt = prompt_for("planning", ticket, files, rejection_context)
     previous = latest_step(state, "plan") if rejection_context else None
-    plan_steps = llm.generate_plan(ticket, reasoning["decision"])
+    active_llm = _create_llm(state.get("llm_provider"), state.get("workspace_path", ""))
+    plan_steps = active_llm.generate_plan(ticket, reasoning["decision"])
     output = {"plan": plan_steps, "reasoning_decision": reasoning["decision"]}
     step = build_step(
         state,
@@ -255,9 +265,11 @@ def execute(state: TicketSessionState) -> dict:
     attempts: list[dict] = []
     final_result: dict | None = None
 
+    active_llm = _create_llm(state.get("llm_provider"), workspace_path)
+
     for repair_attempt in range(MAX_EXECUTION_REPAIRS + 1):
         started_at = utc_now()
-        update_response = llm.generate_file_updates(
+        update_response = active_llm.generate_file_updates(
             ticket,
             state.get("current_plan") or [],
             context_files,
