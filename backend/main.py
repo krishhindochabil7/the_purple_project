@@ -122,6 +122,7 @@ def start_session(body: StartSessionRequest):
         logger.info("session_start", extra={"ticket_id": body.ticket_id, "workspace_path": body.workspace_path})
         graph.invoke(initial_state, config_for(thread_id))
     except ValueError as exc:
+        logger.exception("session_start_failed", extra={"ticket_id": body.ticket_id})
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     sessions[session_id] = {"thread_id": thread_id, "ticket_id": body.ticket_id, "started_at": started_at, "workspace_path": body.workspace_path}
     state = current_state(thread_id)

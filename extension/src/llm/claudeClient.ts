@@ -38,15 +38,19 @@ export class CodeInsights {
       console.log("STREAM CREATED:", stream);
 
       const chunks: string[] = [];
+      let finalResult = "";
 
-      for await (const msg of stream){
-        if ("content" in msg) {
-          for (const b of (msg.content as unknown) as any[]) {
-            if (b.type === "text") chunks.push(b.text);
+      for await (const msg of stream as AsyncIterable<any>){
+        console.log("CLAUDE MSG TYPE:", msg?.type);
+        if (msg?.type === "assistant" && Array.isArray(msg?.message?.content)) {
+          for (const b of msg.message.content) {
+            if (b?.type === "text" && typeof b.text === "string") chunks.push(b.text);
           }
+        } else if (msg?.type === "result" && typeof msg?.result === "string") {
+          finalResult = msg.result;
         }
       }
-      return chunks.join("\n");
+      return chunks.join("\n") || finalResult;
     } catch (e) {
     console.error("CLAUDE FAILURE");
     console.error(e);
